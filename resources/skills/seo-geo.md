@@ -203,6 +203,39 @@ Generate `GEO-ANALYSIS.md` with:
 
 ---
 
+## Passage Indexing Optimization
+
+Google Passage Indexing (active since 2021) ranks individual passages independently from the full page. This is critical for long-form content and pairs well with GEO citability.
+
+### Rules for Passage-Optimized Content
+1. **Self-contained sections**: Each H2 block should fully answer one clear question without requiring context from other sections
+2. **Optimal passage length**: 100-200 words per block (sweet spot for both passage indexing and AI citation)
+3. **Question-answer structure**: Use question-phrased H2/H3 followed by a direct answer in the first sentence
+4. **No pronoun-heavy openings**: Start sections with the full subject, not "It" or "This" referring to previous sections
+5. **Speakable schema**: Add `speakable` CSS selectors for your top answer passages
+
+### Speakable Schema Implementation
+
+```json
+{
+  "@type": "WebPage",
+  "speakable": {
+    "@type": "SpeakableSpecification",
+    "cssSelector": [".answer-block", "#key-definition", ".summary-paragraph"]
+  }
+}
+```
+
+### Passage vs Full-Page Ranking
+
+| Scenario | Google Behavior |
+|----------|----------------|
+| Strong overall page, weak section | Full page ranks |
+| Weak overall page, one excellent section | That **passage** can rank for specific queries |
+| Long FAQ page with 20 questions | Individual Q&A passages rank independently |
+
+---
+
 ## Quick Wins
 
 1. Add "What is [topic]?" definition in first 60 words
