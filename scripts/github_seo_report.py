@@ -54,6 +54,7 @@ def collect_inputs(args, repo: str, token: str) -> dict:
     if args.query_file:
         benchmark_args += ["--query-file", args.query_file]
     benchmark_args += ["--max-pages", str(args.max_pages), "--per-page", str(args.per_page)]
+    competitor_args = benchmark_args[:] + ["--top-n", str(args.competitor_top_n)]
 
     traffic_args = common + ["--archive-dir", args.archive_dir]
     if args.no_archive_write:
@@ -64,6 +65,7 @@ def collect_inputs(args, repo: str, token: str) -> dict:
         "readme_lint": ["github_readme_lint.py", [args.readme_path]],
         "community_health": ["github_community_health.py", common],
         "search_benchmark": ["github_search_benchmark.py", benchmark_args],
+        "competitor_research": ["github_competitor_research.py", competitor_args],
         "traffic_archiver": ["github_traffic_archiver.py", traffic_args],
     }
 
@@ -96,6 +98,19 @@ def collect_findings(outputs: dict) -> list:
                     "evidence": finding.get("evidence", ""),
                     "fix": finding.get("fix", ""),
                     "confidence": finding.get("confidence", "Likely"),
+                }
+            )
+    competitor = outputs.get("competitor_research", {})
+    if competitor.get("ok"):
+        for opp in competitor.get("data", {}).get("gaps", {}).get("opportunities", []):
+            findings.append(
+                {
+                    "source": "competitor_research",
+                    "severity": opp.get("severity", "Info"),
+                    "finding": opp.get("finding", ""),
+                    "evidence": opp.get("evidence", ""),
+                    "fix": opp.get("fix", ""),
+                    "confidence": "Likely",
                 }
             )
     severity_order = {"Critical": 0, "Warning": 1, "Pass": 2, "Info": 3}
@@ -252,6 +267,52 @@ def build_markdown(report: dict) -> str:
             )
         lines.append("")
 
+    competitor = report["outputs"].get("competitor_research", {})
+    if competitor.get("ok"):
+        comp_data = competitor["data"]
+        lines.append("## Competitor Research")
+        lines.append("")
+        summary = comp_data.get("summary", {})
+        lines.append(
+            f"- Competitors analyzed: `{summary.get('competitors_analyzed', 0)}` "
+            f"across `{summary.get('queries_used', 0)}` queries"
+        )
+        lines.append("")
+        lines.append("| Competitor | Seen Queries | Best Rank | Stars | Topics |")
+        lines.append("|------------|--------------|-----------|-------|--------|")
+        for item in comp_data.get("competitors", [])[:10]:
+            md = item.get("metadata", {})
+            lines.append(
+                f"| {item.get('full_name')} | {item.get('seen_in_queries')} | {item.get('best_rank')} | "
+                f"{md.get('stargazers_count')} | {len(md.get('topics') or [])} |"
+            )
+        if not comp_data.get("competitors"):
+            lines.append("| n/a | 0 | n/a | n/a | n/a |")
+        lines.append("")
+        gap_data = comp_data.get("gaps", {})
+        lines.append("### Topic Gaps")
+        lines.append("")
+        topic_gaps = gap_data.get("topic_gaps", [])[:10]
+        if topic_gaps:
+            for gap in topic_gaps:
+                lines.append(
+                    f"- `{gap.get('topic')}` (covered by {gap.get('covered_by_competitors')} competitors)"
+                )
+        else:
+            lines.append("- No high-confidence topic gaps detected from current sample.")
+        lines.append("")
+        lines.append("### Competitor Opportunities")
+        lines.append("")
+        opportunities = gap_data.get("opportunities", [])
+        if opportunities:
+            for opp in opportunities:
+                lines.append(f"- [{opp.get('severity', 'Info')}] {opp.get('finding')}")
+                lines.append(f"  Evidence: {opp.get('evidence')}")
+                lines.append(f"  Fix: {opp.get('fix')}")
+        else:
+            lines.append("- No additional competitor-derived opportunities captured.")
+        lines.append("")
+
     traffic = report["outputs"].get("traffic_archiver", {})
     if traffic.get("ok"):
         snap = traffic["data"].get("snapshot", {})
@@ -331,6 +392,7 @@ def main():
     parser.add_argument("--query-file", help="Path to query list file.")
     parser.add_argument("--max-pages", type=int, default=2, help="Search pages per query (default: 2).")
     parser.add_argument("--per-page", type=int, default=50, help="Search results per page (default: 50).")
+    parser.add_argument("--competitor-top-n", type=int, default=6, help="Competitors to analyze in depth (default: 6).")
     parser.add_argument("--archive-dir", default=".github-seo-data", help="Traffic archive directory.")
     parser.add_argument("--no-archive-write", action="store_true", help="Do not write traffic archive files.")
     parser.add_argument("--markdown", default="GITHUB-SEO-REPORT.md", help="Output markdown path.")
