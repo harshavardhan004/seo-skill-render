@@ -384,6 +384,12 @@ Example generated dashboard:
 Use scripts when you need additional verification or structured JSON outputs.
 
 ```bash
+# GitHub auth setup for repository SEO scripts (choose one)
+export GITHUB_TOKEN="ghp_xxx"   # or: export GH_TOKEN="ghp_xxx"
+# or authenticate gh CLI:
+gh auth login -h github.com
+gh auth status -h github.com
+
 # Example target
 URL="https://example.com"
 

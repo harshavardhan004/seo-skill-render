@@ -134,6 +134,9 @@ python3 <SKILL_DIR>/scripts/internal_links.py <url> --depth 1 --max-pages 20
 python3 <SKILL_DIR>/scripts/article_seo.py <url> --keyword "<optional_target_keyword>" --json
 
 # GitHub repository SEO (provider fallback: auto|api|gh)
+# Auth setup (choose one):
+# export GITHUB_TOKEN="ghp_xxx"   # or export GH_TOKEN="ghp_xxx"
+# gh auth login -h github.com && gh auth status -h github.com
 python3 <SKILL_DIR>/scripts/github_repo_audit.py --repo <owner/repo> --provider auto --json
 python3 <SKILL_DIR>/scripts/github_readme_lint.py README.md --json
 python3 <SKILL_DIR>/scripts/github_community_health.py --repo <owner/repo> --provider auto --json

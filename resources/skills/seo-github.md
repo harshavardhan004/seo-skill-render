@@ -29,6 +29,21 @@ Use this workflow when the user asks:
 - Optional target query set for GitHub search benchmarking.
 - Optional GitHub token (`GITHUB_TOKEN` or `GH_TOKEN`) for API checks.
 
+### Auth Setup
+
+Use either environment token or `gh` auth:
+
+```bash
+# Option A: token env vars (recommended for automation)
+export GITHUB_TOKEN="ghp_xxx"
+# or
+export GH_TOKEN="ghp_xxx"
+
+# Option B: GitHub CLI login fallback
+gh auth login -h github.com
+gh auth status -h github.com
+```
+
 ## Workflow
 
 ### 1. Resolve Scope and Access
