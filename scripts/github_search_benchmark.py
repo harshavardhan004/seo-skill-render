@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 from github_api import (
     GitHubAPIError,
+    auth_context,
     fetch_json,
     get_token,
     resolve_repo,
@@ -69,7 +70,13 @@ def run_query(repo: str, query: str, token: str, per_page: int, max_pages: int, 
     for page in range(1, max_pages + 1):
         params = {"q": query, "per_page": per_page, "page": page}
         try:
-            response = fetch_json("/search/repositories", token=token, params=params, provider=provider)
+            response = fetch_json(
+                "/search/repositories",
+                token=token,
+                params=params,
+                provider=provider,
+                timeout=35,
+            )
             data = response.get("data", {})
         except GitHubAPIError as exc:
             errors.append(f"Page {page}: {exc} (status: {exc.status or 'unknown'})")
@@ -177,6 +184,7 @@ def main():
     report = {
         "timestamp_utc": utc_now_iso(),
         "repo": repo,
+        "auth_context": auth_context(token=token),
         "token_present": bool(token),
         "queries": queries,
         "results": [],
@@ -184,9 +192,19 @@ def main():
     }
 
     if not token:
-        report["limitations"].append(
-            "No GitHub token found. Search may be rate-limited unless gh CLI auth is configured."
-        )
+        ctx = report["auth_context"]
+        if ctx.get("gh_authenticated"):
+            report["limitations"].append(
+                "No GitHub token found. Using authenticated gh CLI fallback for search."
+            )
+        elif ctx.get("gh_available"):
+            report["limitations"].append(
+                "No GitHub token found and gh CLI is not authenticated. Run `gh auth login -h github.com` or set GITHUB_TOKEN/GH_TOKEN."
+            )
+        else:
+            report["limitations"].append(
+                "No GitHub token found and gh CLI is unavailable. Search may be rate-limited; set GITHUB_TOKEN/GH_TOKEN."
+            )
 
     for query in queries:
         result = run_query(

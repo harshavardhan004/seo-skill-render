@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 
 from github_api import (
     GitHubAPIError,
+    auth_context,
     fetch_json,
     get_token,
     resolve_repo,
@@ -44,7 +45,7 @@ def write_json(path: str, payload: dict):
 
 def fetch_endpoint(path: str, token: str, provider: str) -> dict:
     try:
-        response = fetch_json(path, token=token, provider=provider)
+        response = fetch_json(path, token=token, provider=provider, timeout=30)
         return {"ok": True, "data": response.get("data", {}), "rate_limit": response.get("rate_limit", {})}
     except GitHubAPIError as exc:
         return {"ok": False, "error": str(exc), "status": exc.status, "details": exc.details}
@@ -62,17 +63,28 @@ def collect_traffic(repo: str, token: str, provider: str) -> dict:
 
 
 def build_snapshot(repo: str, token: str, provider: str) -> dict:
+    ctx = auth_context(token=token)
     snapshot = {
         "timestamp_utc": utc_now_iso(),
         "repo": repo,
+        "auth_context": ctx,
         "token_present": bool(token),
         "endpoints": {},
         "limitations": [],
     }
     if not token:
-        snapshot["limitations"].append(
-            "No GitHub token found. Traffic endpoints may fail unless gh CLI auth is configured."
-        )
+        if ctx.get("gh_authenticated"):
+            snapshot["limitations"].append(
+                "No GitHub token found. Using authenticated gh CLI fallback for traffic endpoints."
+            )
+        elif ctx.get("gh_available"):
+            snapshot["limitations"].append(
+                "No GitHub token found and gh CLI is not authenticated. Traffic endpoints require auth. Run `gh auth login -h github.com` or set GITHUB_TOKEN/GH_TOKEN."
+            )
+        else:
+            snapshot["limitations"].append(
+                "No GitHub token found and gh CLI is unavailable. Traffic endpoints require auth; set GITHUB_TOKEN/GH_TOKEN."
+            )
 
     endpoint_data = collect_traffic(repo, token, provider)
     endpoint_summary = {}

@@ -14,6 +14,7 @@ from urllib.error import HTTPError, URLError
 
 
 API_BASE = "https://api.github.com"
+_GH_AUTH_CACHE = None
 
 
 class GitHubAPIError(RuntimeError):
@@ -49,6 +50,63 @@ def gh_available() -> bool:
         return result.returncode == 0
     except Exception:
         return False
+
+
+def gh_auth_details(force_refresh: bool = False) -> dict:
+    """
+    Return GitHub CLI auth status.
+    Notes:
+    - `gh auth status` may exit 0 even with invalid token, so parse output text.
+    """
+    global _GH_AUTH_CACHE
+    if _GH_AUTH_CACHE is not None and not force_refresh:
+        return _GH_AUTH_CACHE
+
+    details = {
+        "available": False,
+        "authenticated": False,
+        "raw": "",
+    }
+    if not gh_available():
+        _GH_AUTH_CACHE = details
+        return details
+
+    details["available"] = True
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "status", "-h", "github.com"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=12,
+        )
+        text = (result.stdout or "") + "\n" + (result.stderr or "")
+        lower = text.lower()
+        authenticated = (
+            "logged in to github.com" in lower
+            and "failed to log in" not in lower
+            and "not logged into" not in lower
+            and "token is invalid" not in lower
+        )
+        details["authenticated"] = authenticated
+        details["raw"] = text.strip()
+    except Exception as exc:
+        details["raw"] = str(exc)
+
+    _GH_AUTH_CACHE = details
+    return details
+
+
+def auth_context(token: str = "") -> dict:
+    """Return auth context used by scripts for messaging and fallback decisions."""
+    gh = gh_auth_details()
+    mode = "token" if bool(token) else ("gh" if gh.get("authenticated") else "unauthenticated")
+    return {
+        "token_present": bool(token),
+        "gh_available": gh.get("available", False),
+        "gh_authenticated": gh.get("authenticated", False),
+        "mode": mode,
+    }
 
 
 def normalize_repo_slug(value: str) -> str:
@@ -321,28 +379,46 @@ def fetch_json(
         return {"data": data, "status": 200, "rate_limit": {}}
 
     # auto mode
-    api_error = None
-    if token:
-        try:
-            return rest_json(
-                path=path,
-                token=token,
-                method=method,
-                params=params,
-                body=body,
-                accept=accept,
-                timeout=timeout,
-                retries=retries,
-            )
-        except GitHubAPIError as exc:
-            api_error = exc
+    ctx = auth_context(token=token)
+    errors = []
 
-    try:
+    def try_rest(use_token: str):
+        return rest_json(
+            path=path,
+            token=use_token,
+            method=method,
+            params=params,
+            body=body,
+            accept=accept,
+            timeout=timeout,
+            retries=retries,
+        )
+
+    def try_gh():
         data = gh_api_json(path=path, method=method, params=params, body=body, timeout=timeout)
         return {"data": data, "status": 200, "rate_limit": {}}
-    except GitHubAPIError as gh_exc:
-        if api_error:
-            raise GitHubAPIError(
-                f"API and gh fallback both failed. API: {api_error}; GH: {gh_exc}"
-            ) from gh_exc
-        raise
+
+    attempts = []
+    if ctx["token_present"]:
+        attempts.append(("api(token)", lambda: try_rest(token)))
+        if ctx["gh_available"]:
+            attempts.append(("gh", try_gh))
+        attempts.append(("api(public)", lambda: try_rest("")))
+    else:
+        if ctx["gh_authenticated"]:
+            attempts.append(("gh", try_gh))
+            attempts.append(("api(public)", lambda: try_rest("")))
+        else:
+            attempts.append(("api(public)", lambda: try_rest("")))
+            if ctx["gh_available"]:
+                attempts.append(("gh", try_gh))
+
+    for label, fn in attempts:
+        try:
+            return fn()
+        except GitHubAPIError as exc:
+            errors.append(f"{label}: {exc}")
+            continue
+
+    detail = " | ".join(errors) if errors else "No provider attempts available."
+    raise GitHubAPIError(f"All provider attempts failed. {detail}")

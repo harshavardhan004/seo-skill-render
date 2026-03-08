@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 from github_api import (
     GitHubAPIError,
+    auth_context,
     fetch_json,
     get_token,
     resolve_repo,
@@ -55,6 +56,7 @@ def add_finding(findings: list, severity: str, finding: str, evidence: str, fix:
 
 
 def evaluate(repo: str, token: str, provider: str, cwd: str) -> dict:
+    ctx = auth_context(token=token)
     local = local_artifacts(cwd)
     findings = []
     limitations = []
@@ -92,7 +94,14 @@ def evaluate(repo: str, token: str, provider: str, cwd: str) -> dict:
             )
 
     if not token:
-        limitations.append("No GitHub token provided. Remote community profile may rely on gh fallback.")
+        if ctx.get("gh_authenticated"):
+            limitations.append("No GitHub token provided. Using authenticated gh CLI fallback for remote profile checks.")
+        elif ctx.get("gh_available"):
+            limitations.append(
+                "No GitHub token provided and gh CLI is not authenticated. Run `gh auth login -h github.com` or set GITHUB_TOKEN/GH_TOKEN."
+            )
+        else:
+            limitations.append("No GitHub token provided and gh CLI is unavailable. Set GITHUB_TOKEN/GH_TOKEN.")
 
     try:
         payload = fetch_json(f"/repos/{repo}/community/profile", token=token, provider=provider)
@@ -145,6 +154,7 @@ def evaluate(repo: str, token: str, provider: str, cwd: str) -> dict:
         "timestamp_utc": utc_now_iso(),
         "repo": repo,
         "provider": provider,
+        "auth_context": ctx,
         "token_present": bool(token),
         "local_completion_percent": local_completion,
         "score": score,

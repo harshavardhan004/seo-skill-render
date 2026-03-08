@@ -19,7 +19,7 @@ import sys
 from collections import Counter
 from datetime import datetime, timezone
 
-from github_api import GitHubAPIError, fetch_json, get_token, resolve_repo
+from github_api import GitHubAPIError, auth_context, fetch_json, get_token, resolve_repo
 
 
 DEFAULT_QUERIES = [
@@ -88,7 +88,13 @@ def run_query_candidates(
     for page in range(1, max_pages + 1):
         params = {"q": query, "per_page": per_page, "page": page}
         try:
-            response = fetch_json("/search/repositories", token=token, params=params, provider=provider)
+            response = fetch_json(
+                "/search/repositories",
+                token=token,
+                params=params,
+                provider=provider,
+                timeout=35,
+            )
             data = response.get("data", {})
         except GitHubAPIError as exc:
             out["errors"].append(f"Page {page}: {exc} (status: {exc.status or 'unknown'})")
@@ -151,7 +157,7 @@ def score_competitor(entry: dict) -> tuple:
 
 def fetch_repo_metadata(repo: str, token: str, provider: str) -> dict:
     try:
-        response = fetch_json(f"/repos/{repo}", token=token, provider=provider)
+        response = fetch_json(f"/repos/{repo}", token=token, provider=provider, timeout=30)
         return response.get("data", {})
     except GitHubAPIError:
         return {}
@@ -170,7 +176,7 @@ def decode_readme_content(payload: dict) -> str:
 
 def fetch_readme_metrics(repo: str, token: str, provider: str) -> dict:
     try:
-        response = fetch_json(f"/repos/{repo}/readme", token=token, provider=provider)
+        response = fetch_json(f"/repos/{repo}/readme", token=token, provider=provider, timeout=30)
         payload = response.get("data", {})
     except GitHubAPIError:
         return {"available": False}
@@ -284,10 +290,12 @@ def build_report(
     max_pages: int,
     top_n: int,
 ) -> dict:
+    ctx = auth_context(token=token)
     report = {
         "timestamp_utc": utc_now_iso(),
         "repo": repo,
         "provider": provider,
+        "auth_context": ctx,
         "token_present": bool(token),
         "queries": queries,
         "query_runs": [],
@@ -297,7 +305,18 @@ def build_report(
     }
 
     if not token:
-        report["limitations"].append("No GitHub token found. Competitor research may be rate-limited.")
+        if ctx.get("gh_authenticated"):
+            report["limitations"].append(
+                "No GitHub token found. Using authenticated gh CLI fallback for competitor research."
+            )
+        elif ctx.get("gh_available"):
+            report["limitations"].append(
+                "No GitHub token found and gh CLI is not authenticated. Run `gh auth login -h github.com` or set GITHUB_TOKEN/GH_TOKEN."
+            )
+        else:
+            report["limitations"].append(
+                "No GitHub token found and gh CLI is unavailable. Competitor research may be rate-limited; set GITHUB_TOKEN/GH_TOKEN."
+            )
 
     query_run_full = []
     for query in queries:

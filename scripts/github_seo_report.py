@@ -201,6 +201,17 @@ def build_backlink_plan(outputs: dict) -> dict:
     }
 
 
+def dedupe_preserve(items: list) -> list:
+    out = []
+    seen = set()
+    for item in items:
+        key = item.strip()
+        if key and key not in seen:
+            out.append(item)
+            seen.add(key)
+    return out
+
+
 def build_markdown(report: dict) -> str:
     lines = []
     lines.append("# GitHub SEO Report")
@@ -431,6 +442,7 @@ def main():
         "outputs": outputs,
         "limitations": limitations,
     }
+    report["limitations"] = dedupe_preserve(report["limitations"])
     report["scores"] = extract_score(outputs)
     report["findings"] = collect_findings(outputs)
     report["title_analysis"] = outputs.get("repo_audit", {}).get("data", {}).get("title_analysis", {})

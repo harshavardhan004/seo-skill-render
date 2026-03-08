@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 
 from github_api import (
     GitHubAPIError,
+    auth_context,
     fetch_json,
     get_token,
     resolve_repo,
@@ -204,9 +205,11 @@ def analyze_title_strategy(repo_slug: str, metadata: dict) -> dict:
 
 
 def build_audit(repo: str, token: str, cwd: str, provider: str) -> dict:
+    ctx = auth_context(token=token)
     report = {
         "timestamp_utc": utc_now_iso(),
         "repo": repo,
+        "auth_context": ctx,
         "api_access": {"token_present": bool(token), "repo_endpoint_ok": False, "community_endpoint_ok": False},
         "limitations": [],
         "metadata": {},
@@ -221,9 +224,18 @@ def build_audit(repo: str, token: str, cwd: str, provider: str) -> dict:
     confidence = "Confirmed"
 
     if not token:
-        report["limitations"].append(
-            "No GitHub token found. Using public API and/or gh fallback where possible."
-        )
+        if ctx.get("gh_authenticated"):
+            report["limitations"].append(
+                "No GitHub token found. Using authenticated gh CLI session as fallback."
+            )
+        elif ctx.get("gh_available"):
+            report["limitations"].append(
+                "No GitHub token found and gh CLI is not authenticated. Run `gh auth login -h github.com` or set GITHUB_TOKEN/GH_TOKEN."
+            )
+        else:
+            report["limitations"].append(
+                "No GitHub token found and gh CLI is unavailable. Set GITHUB_TOKEN/GH_TOKEN for reliable API access."
+            )
 
     try:
         repo_resp = fetch_json(f"/repos/{repo}", token=token, provider=provider)
