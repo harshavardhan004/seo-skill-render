@@ -1,38 +1,28 @@
-from flask import Flask, request, jsonify
+from flask import Flask, render_template, request, send_file
 import subprocess
-import traceback
+import os
 
 app = Flask(__name__)
 
+
 @app.route("/")
 def home():
-    return {"status": "SEO API Running"}
+    return render_template("index.html")
 
-@app.route("/seo-audit", methods=["GET"])
-def seo_audit():
-    url = request.args.get("url")
 
-    if not url:
-        return {"error": "URL parameter missing"}, 400
+@app.route("/generate", methods=["POST"])
+def generate():
 
-    try:
-        result = subprocess.run(
-            ["python", "scripts/generate_report.py", url],
-            capture_output=True,
-            text=True
-        )
+    email = request.form.get("email")
+    url = request.form.get("url")
 
-        return {
-            "status": "Report Generated",
-            "output": result.stdout,
-            "error": result.stderr
-        }
+    subprocess.run([
+        "python",
+        "scripts/generate_report.py",
+        url
+    ])
 
-    except Exception as e:
-        return {
-            "error": str(e),
-            "trace": traceback.format_exc()
-        }, 500
+    return send_file("report.html")
 
 
 if __name__ == "__main__":
